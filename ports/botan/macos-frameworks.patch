@@ -1,0 +1,36 @@
+diff --git a/src/build-data/botan-config.cmake.in b/src/build-data/botan-config.cmake.in
+index e4cae7c..2df223a 100644
+--- a/src/build-data/botan-config.cmake.in
++++ b/src/build-data/botan-config.cmake.in
+@@ -134,7 +134,14 @@ if(NOT TARGET botan::botan-static)
+       INTERFACE_INCLUDE_DIRECTORIES     "${_Botan_INCLUDE_DIR}"
+       IMPORTED_LINK_INTERFACE_LANGUAGES "CXX"
+       INTERFACE_LINK_OPTIONS            "SHELL:%{cxx_abi_flags}")
+-
++  if(APPLE)
++    find_library(_Botan_CoreFoundation_FRAMEWORK CoreFoundation REQUIRED)
++    find_library(_Botan_Security_FRAMEWORK Security REQUIRED)
++    set_property(
++      TARGET botan::botan-static APPEND PROPERTY
++      INTERFACE_LINK_LIBRARIES
++        "${_Botan_CoreFoundation_FRAMEWORK};${_Botan_Security_FRAMEWORK}")
++  endif()
+   # TODO(Botan4): Remove this alias
+   if(NOT ${CMAKE_VERSION} VERSION_LESS "3.18.0") # 3.18 allows creating ALIAS targets to non-GLOBAL targets
+     add_library(Botan::Botan-static ALIAS botan::botan-static)
+@@ -164,6 +171,15 @@ if(NOT TARGET botan::botan)
+       IMPORTED_IMPLIB               "${_Botan_implib}"
+       INTERFACE_INCLUDE_DIRECTORIES "${_Botan_INCLUDE_DIR}"
+       INTERFACE_LINK_OPTIONS        "SHELL:%{cxx_abi_flags}")
++
++  if(APPLE)
++    find_library(_Botan_CoreFoundation_FRAMEWORK CoreFoundation REQUIRED)
++    find_library(_Botan_Security_FRAMEWORK Security REQUIRED)
++    set_property(
++      TARGET botan::botan APPEND PROPERTY
++      INTERFACE_LINK_LIBRARIES
++        "${_Botan_CoreFoundation_FRAMEWORK};${_Botan_Security_FRAMEWORK}")
++  endif()
+   set_property(TARGET botan::botan APPEND PROPERTY IMPORTED_CONFIGURATIONS NOCONFIG)
+   set_target_properties(botan::botan
+     PROPERTIES
