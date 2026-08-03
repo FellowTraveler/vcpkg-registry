@@ -8,6 +8,7 @@ vcpkg_from_github(
         verbose-install.patch
         configure-zlib.patch
         fix_android.patch
+        macos-frameworks.patch
 )
 file(COPY "${CMAKE_CURRENT_LIST_DIR}/configure" DESTINATION "${SOURCE_PATH}")
 
