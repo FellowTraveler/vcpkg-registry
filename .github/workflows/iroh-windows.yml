@@ -10,6 +10,8 @@ env:
   OT_VCPKG_DIR: C:\vcpkg-ot
   VCPKG_DEFAULT_BINARY_CACHE: C:\vcpkg-bincache
   TRIPLET: x64-windows
+  # vcpkg rebuilds PATH on Windows; rustc/cargo from rustup must stay reachable.
+  VCPKG_KEEP_ENV_VARS: PATH
 
 jobs:
   port:
@@ -105,9 +107,13 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: vcpkg-logs
-        path: |
-          C:\vcpkg-ot\buildtrees\**\*.log
-          .github/iroh-example/build-*/CMakeFiles/*.log
+        path: C:\vcpkg-ot\buildtrees\**\*.log
+    - name: Upload example logs
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: example-logs
+        path: .github/iroh-example/build-*/CMakeFiles/*.log
 
   native-static-libs:
     runs-on: windows-2022
