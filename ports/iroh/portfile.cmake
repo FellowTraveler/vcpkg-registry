@@ -79,6 +79,11 @@ if(NOT TARGET iroh::iroh_c_ffi)
         endforeach()
         set_property(TARGET iroh::iroh_c_ffi APPEND PROPERTY INTERFACE_LINK_LIBRARIES objc iconv)
     endif()
+    if(WIN32)
+        # From `cargo rustc --crate-type staticlib -- --print native-static-libs`
+        set_property(TARGET iroh::iroh_c_ffi APPEND PROPERTY INTERFACE_LINK_LIBRARIES
+            legacy_stdio_definitions iphlpapi bcrypt advapi32 kernel32 ntdll userenv ws2_32 dbghelp)
+    endif()
 endif()
 
 check_required_components(iroh)
