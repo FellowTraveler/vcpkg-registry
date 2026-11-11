@@ -14,7 +14,7 @@
         },
         "iroh": {
             "baseline": "0.101.0",
-            "port-version": 1
+            "port-version": 2
         },
         "opentxs": {
             "baseline": "1.189.1",

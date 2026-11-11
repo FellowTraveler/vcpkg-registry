@@ -1,3 +1,5 @@
+vcpkg_check_linkage(ONLY_STATIC_LIBRARY)
+
 vcpkg_from_github(
     OUT_SOURCE_PATH SOURCE_PATH
     REPO n0-computer/iroh-c-ffi
@@ -15,28 +17,28 @@ find_package(Corrosion CONFIG REQUIRED)
 corrosion_import_crate(
     MANIFEST_PATH Cargo.toml
     CRATES iroh-c-ffi
-    FEATURES headers
+    CRATE_TYPES staticlib
+    LOCKED
 )
 
 corrosion_install(
     TARGETS iroh_c_ffi
-    EXPORT iroh-targets
     ARCHIVE DESTINATION lib
-    LIBRARY DESTINATION lib
-    RUNTIME DESTINATION bin
 )
 
-install(EXPORT iroh-targets
-    FILE irohTargets.cmake
-    NAMESPACE iroh::
-    DESTINATION lib/cmake/iroh
-)
+# Upstream commits the header produced by its generate_headers binary and its
+# CI fails if the two differ, so the checked-in file is the generated header.
+install(FILES irohnet.h DESTINATION include)
+
+set(IROH_ARCHIVE_NAME "${CMAKE_STATIC_LIBRARY_PREFIX}iroh_c_ffi${CMAKE_STATIC_LIBRARY_SUFFIX}")
+# System libraries the Rust standard library needs, as detected by Corrosion.
+set(IROH_NATIVE_LIBS "${Rust_CARGO_TARGET_LINK_NATIVE_LIBS}")
 
 include(CMakePackageConfigHelpers)
 configure_package_config_file(
     ${CMAKE_CURRENT_LIST_DIR}/iroh-config.cmake.in
     ${CMAKE_CURRENT_BINARY_DIR}/iroh-config.cmake
-    INSTALL_DESTINATION lib/cmake/iroh
+    INSTALL_DESTINATION share/iroh
 )
 write_basic_package_version_file(
     ${CMAKE_CURRENT_BINARY_DIR}/iroh-config-version.cmake
@@ -46,13 +48,39 @@ write_basic_package_version_file(
 install(FILES
     ${CMAKE_CURRENT_BINARY_DIR}/iroh-config.cmake
     ${CMAKE_CURRENT_BINARY_DIR}/iroh-config-version.cmake
-    DESTINATION lib/cmake/iroh
+    DESTINATION share/iroh
 )
 ]])
 
 file(WRITE "${SOURCE_PATH}/iroh-config.cmake.in" [[
 @PACKAGE_INIT@
-include("${CMAKE_CURRENT_LIST_DIR}/irohTargets.cmake")
+
+if(NOT TARGET iroh::iroh_c_ffi)
+    add_library(iroh::iroh_c_ffi STATIC IMPORTED)
+    set_target_properties(iroh::iroh_c_ffi PROPERTIES
+        IMPORTED_CONFIGURATIONS RELEASE
+        IMPORTED_LOCATION_RELEASE "${PACKAGE_PREFIX_DIR}/lib/@IROH_ARCHIVE_NAME@"
+        INTERFACE_INCLUDE_DIRECTORIES "${PACKAGE_PREFIX_DIR}/include"
+        INTERFACE_LINK_LIBRARIES "@IROH_NATIVE_LIBS@"
+    )
+    if(EXISTS "${PACKAGE_PREFIX_DIR}/debug/lib/@IROH_ARCHIVE_NAME@")
+        set_property(TARGET iroh::iroh_c_ffi APPEND PROPERTY IMPORTED_CONFIGURATIONS DEBUG)
+        set_target_properties(iroh::iroh_c_ffi PROPERTIES
+            IMPORTED_LOCATION_DEBUG "${PACKAGE_PREFIX_DIR}/debug/lib/@IROH_ARCHIVE_NAME@"
+        )
+    endif()
+    if(APPLE)
+        # From `cargo rustc --crate-type staticlib -- --print native-static-libs`
+        foreach(_iroh_framework IN ITEMS
+            CoreFoundation CoreWLAN Foundation Security SecurityFoundation SystemConfiguration)
+            find_library(_iroh_${_iroh_framework}_FRAMEWORK ${_iroh_framework} REQUIRED)
+            set_property(TARGET iroh::iroh_c_ffi APPEND PROPERTY
+                INTERFACE_LINK_LIBRARIES "${_iroh_${_iroh_framework}_FRAMEWORK}")
+        endforeach()
+        set_property(TARGET iroh::iroh_c_ffi APPEND PROPERTY INTERFACE_LINK_LIBRARIES objc iconv)
+    endif()
+endif()
+
 check_required_components(iroh)
 ]])
 
@@ -62,35 +90,8 @@ vcpkg_cmake_configure(
 
 vcpkg_cmake_install()
 
-message(STATUS "Generating Iroh C API header definitions...")
+vcpkg_cmake_config_fixup()
 
-find_program(CARGO cargo REQUIRED)
+file(REMOVE_RECURSE "${CURRENT_PACKAGES_DIR}/debug/include")
 
-vcpkg_execute_required_process(
-    COMMAND ${CMAKE_COMMAND} -E env
-        "CARGO_PKG_NAME=iroh-c-ffi"
-        "CARGO_CRATE_NAME=iroh_c_ffi"
-        "${CARGO}" run --bin generate_headers --features headers -- "${CURRENT_BUILDTREES_DIR}/staging_iroh.h"
-    WORKING_DIRECTORY "${SOURCE_PATH}"
-    LOGNAME "generate-headers-cargo-${TARGET_TRIPLET}"
-)
-
-if(NOT EXISTS "${CURRENT_BUILDTREES_DIR}/staging_iroh.h")
-    message(FATAL_ERROR "Header generation failed: Host cargo run did not emit target header to disk.")
-endif()
-
-file(MAKE_DIRECTORY "${CURRENT_PACKAGES_DIR}/include/iroh")
-
-file(COPY "${CURRENT_BUILDTREES_DIR}/staging_iroh.h" DESTINATION "${CURRENT_PACKAGES_DIR}/include/iroh")
-file(RENAME "${CURRENT_PACKAGES_DIR}/include/iroh/staging_iroh.h" "${CURRENT_PACKAGES_DIR}/include/iroh/iroh.h")
-
-if(EXISTS "${CURRENT_PACKAGES_DIR}/debug/include")
-    file(REMOVE_RECURSE "${CURRENT_PACKAGES_DIR}/debug/include")
-endif()
-
-vcpkg_cmake_config_fixup(
-    PACKAGE_NAME iroh
-    CONFIG_PATH lib/cmake/iroh
-)
-
-vcpkg_install_copyright(FILE_LIST "${SOURCE_PATH}/LICENSE-MIT")
+vcpkg_install_copyright(FILE_LIST "${SOURCE_PATH}/LICENSE-MIT" "${SOURCE_PATH}/LICENSE-APACHE")

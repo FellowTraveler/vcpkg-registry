@@ -1,9 +1,9 @@
 {
     "name": "iroh",
     "version": "0.101.0",
-    "port-version": 1,
+    "port-version": 2,
     "description": "C bindings for the Iroh IPFS/p2p protocol engine.",
-    "homepage": "https://github.com",
+    "homepage": "https://github.com/n0-computer/iroh-c-ffi",
     "license": "MIT OR Apache-2.0",
     "dependencies": [
         {
