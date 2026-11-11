@@ -1,5 +1,10 @@
 vcpkg_check_linkage(ONLY_STATIC_LIBRARY)
 
+if(VCPKG_TARGET_IS_WINDOWS)
+    # Rust's MSVC targets always link the release CRT (/MD), also in debug builds.
+    set(VCPKG_POLICY_SKIP_CRT_LINKAGE_CHECK enabled)
+endif()
+
 vcpkg_from_github(
     OUT_SOURCE_PATH SOURCE_PATH
     REPO n0-computer/iroh-c-ffi
