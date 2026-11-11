@@ -1,0 +1,123 @@
+name: iroh-windows
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [iroh-windows-ci]
+
+env:
+  VCPKG_COMMIT: 75db8c794ee452e659161987397b91d587ba375e
+  OT_VCPKG_DIR: C:\vcpkg-ot
+  VCPKG_DEFAULT_BINARY_CACHE: C:\vcpkg-bincache
+  TRIPLET: x64-windows
+
+jobs:
+  port:
+    runs-on: windows-2022
+    timeout-minutes: 90
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    - uses: ilammy/msvc-dev-cmd@v1
+    - uses: lukka/get-cmake@latest
+    - name: Rust
+      shell: bash
+      run: |
+        echo "VCPKG_ROOT from VS env: $VCPKG_ROOT"
+        cl 2>&1 | head -1
+        "$(cygpath -u "$VCINSTALLDIR")Tools/Llvm/x64/bin/clang-cl.exe" --version
+        rustup default stable
+        rustup target add x86_64-pc-windows-msvc
+        rustc -vV
+        cargo -V
+    - name: Bootstrap vcpkg
+      shell: bash
+      run: |
+        git init "$OT_VCPKG_DIR"
+        cd "$OT_VCPKG_DIR"
+        git remote add origin https://github.com/microsoft/vcpkg.git
+        git fetch --depth 1 origin "$VCPKG_COMMIT"
+        git checkout FETCH_HEAD
+        ./bootstrap-vcpkg.bat -disableMetrics
+        mkdir -p "$VCPKG_DEFAULT_BINARY_CACHE"
+    - name: Registry configuration
+      shell: bash
+      run: |
+        repo="$(cygpath -m "$GITHUB_WORKSPACE")"
+        cat > .github/iroh-example/vcpkg-configuration.json <<EOF
+        {
+          "default-registry": {
+            "kind": "builtin",
+            "baseline": "$VCPKG_COMMIT"
+          },
+          "registries": [
+            {
+              "kind": "git",
+              "repository": "file:///$repo",
+              "baseline": "$(git rev-parse HEAD)",
+              "packages": [ "corrosion", "iroh" ]
+            }
+          ]
+        }
+        EOF
+        cat .github/iroh-example/vcpkg-configuration.json
+    - uses: actions/cache/restore@v4
+      with:
+        path: C:\vcpkg-bincache
+        key: vcpkg-${{ env.VCPKG_COMMIT }}-${{ hashFiles('ports/iroh/**', 'ports/corrosion/**') }}
+    - name: vcpkg install
+      shell: bash
+      working-directory: .github/iroh-example
+      run: |
+        "$OT_VCPKG_DIR/vcpkg.exe" install --vcpkg-root="$OT_VCPKG_DIR" --triplet "$TRIPLET" --host-triplet "$TRIPLET" \
+          --x-install-root="$(cygpath -m "$RUNNER_TEMP")/vcpkg_installed"
+        cat "$(cygpath -m "$RUNNER_TEMP")/vcpkg_installed/$TRIPLET/share/iroh/iroh-config.cmake"
+    - uses: actions/cache/save@v4
+      with:
+        path: C:\vcpkg-bincache
+        key: vcpkg-${{ env.VCPKG_COMMIT }}-${{ hashFiles('ports/iroh/**', 'ports/corrosion/**') }}
+    - name: Build and run
+      shell: bash
+      working-directory: .github/iroh-example
+      timeout-minutes: 20
+      run: |
+        clangcl="$(cygpath -m "$VCINSTALLDIR")Tools/Llvm/x64/bin/clang-cl.exe"
+        installed="$(cygpath -m "$RUNNER_TEMP")/vcpkg_installed"
+        for cc in cl "$clangcl"; do
+          for cfg in Debug Release; do
+            echo "::group::$cc $cfg"
+            dir="build-$(basename "$cc" .exe)-$cfg"
+            cmake -S . -B "$dir" -G Ninja \
+              -DCMAKE_BUILD_TYPE=$cfg \
+              -DCMAKE_C_COMPILER="$cc" -DCMAKE_CXX_COMPILER="$cc" \
+              -DCMAKE_TOOLCHAIN_FILE="$OT_VCPKG_DIR/scripts/buildsystems/vcpkg.cmake" \
+              -DVCPKG_TARGET_TRIPLET=$TRIPLET -DVCPKG_HOST_TRIPLET=$TRIPLET \
+              -DVCPKG_MANIFEST_MODE=OFF -DVCPKG_INSTALLED_DIR="$installed"
+            cmake --build "$dir" -v 2>&1 | tee "$dir.log"
+            if grep -E 'LNK4098|LNK2038|LNK4217' "$dir.log"; then echo "::warning::CRT/link warning in $cc $cfg"; fi
+            timeout 120 "./$dir/iroh-example.exe"
+            echo "::endgroup::"
+          done
+        done
+    - name: Upload vcpkg logs
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: vcpkg-logs
+        path: |
+          C:\vcpkg-ot\buildtrees\**\*.log
+          .github/iroh-example/build-*/CMakeFiles/*.log
+
+  native-static-libs:
+    runs-on: windows-2022
+    timeout-minutes: 90
+    steps:
+    - name: Print native-static-libs
+      shell: bash
+      run: |
+        rustup default stable
+        git clone --depth 1 --branch v0.101.0 https://github.com/n0-computer/iroh-c-ffi.git
+        cd iroh-c-ffi
+        cargo rustc --release --locked --lib --crate-type staticlib -- --print native-static-libs > ../cargo.log 2>&1 || { tail -50 ../cargo.log; exit 1; }
+        grep -i -A1 native-static-libs ../cargo.log
